@@ -78,7 +78,8 @@ map_in_memory_width: .word 0
 current_level: .word 0
 
 pos_personaje: .word 0
-mov_personaje: .word 0
+mov_personaje: .word 0 
+pos_caja_mover: .word 0
 mov_caja: .word 0
 .text
 
@@ -353,6 +354,7 @@ pedirInputTeclado:
 	pop {r1,r2,lr}
 	bx lr
 	.fnend
+
 /* 
    Input r3: dividendo, r4: divisor
    Ouput: r5: resto, r6: cociente
@@ -465,20 +467,51 @@ pedir_movimiento:
 @recibe en r2 la posicion nueva del personaje y mueve al personaje a esa posicion, actualizando pos_personaje y el mapa
 guardar_movimiento:
 	.fnstart
-	push { r0, r1, lr}
+	push { r0, r1, r3, r4, lr}
 	ldr r1, =pos_personaje
 	ldr r1, [r1]                @ r1 = posición vieja
-	mov r0, #' '
-	bl escribir_en_mapa         @ borra al jugador de la vieja
+	ldr r4, =map_in_memory
+	ldrb r3, [r4, r1]           @ r3 = char en la posición vieja
 
+	ldr r0 , =char_player_over_objective
+	ldrb r0, [r0]               @ r0 = '+'
+	cmp r3, r0
+	beq mover_jugador_sobre_objetivo
+
+	ldr r0, =char_floor
+	ldrb r0, [r0]               @ r0 = ' '
+	bl escribir_en_mapa         @ borra al jugador de la vieja
+	b seguir_guardar_movimiento
+
+	mover_jugador_sobre_objetivo: @estaba parado sobre un objetivo
+	ldr r0, =char_objective
+	ldrb r0, [r0]               @ r0 = '.'
+	bl escribir_en_mapa         @ borra al jugador de la vieja y deja el objetivo
+
+	seguir_guardar_movimiento:
+	
+	@actualiza pos del jugador
 	mov r1, r2                  @ r1 = posición nueva
 	ldr r0, =pos_personaje
 	str r1, [r0]                @ actualiza pos_personaje
 
+	ldr r0, =char_objective
+	ldrb r0, [r0] 
+	ldrb r3, [r4, r1]                  @ r3 = char en la posición nueva
+	cmp r3, r0
+	beq dibujar_personaje_sobre_objetivo
+	
 	ldr r0, =char_player
 	ldrb r0, [r0]               @ r0 = '@'
+	b dibujar_personaje
+
+	dibujar_personaje_sobre_objetivo:
+	ldr r0, =char_player_over_objective
+	ldrb r0, [r0]               @ r0 = '+'
+
+	dibujar_personaje:
 	bl escribir_en_mapa         @ dibuja al jugador en la nueva
-	pop {r0, r1, lr}
+	pop {r0, r1, r3, r4, lr}
 	bx lr
 	.fnend
 
@@ -490,6 +523,8 @@ validar_y_guardar_movimiento:
 	ldr r0, =map_in_memory
 	ldrb r1, [r0, r2]           @ r1 = char en la posición nueva
 	cmp r1, #' '
+	beq validar_movimiento_valido
+	cmp r1, #'.'
 	beq validar_movimiento_valido
 	bl imprimir_input_invalido  @ casillas no vacias TODO: manejar cajas y objetivos
 	b validar_movimiento_fin
@@ -546,6 +581,7 @@ manejo_movimiento:
 	pop {r0, r1, r2, lr}
 	bx lr
 	.fnend
+
 
 
 .global main
