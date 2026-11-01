@@ -61,6 +61,8 @@ msg_input_invalido: .ascii "input invalido \n"
 len_input_invalido = . - msg_input_invalido
 msg_movements: .ascii "Controles: Movimiento (W/A/S/D) Reiniciar(R) Salir(Q) \n"
 len_msg_movements = . - msg_movements
+msg_victory: .ascii "*** Nivel Completado Felicidades ***\n"
+len_msg_victory = . - msg_victory
 
 @RepresentacionGraficaChars:
 char_player: .ascii "@"
@@ -294,7 +296,7 @@ mostrar_mapa:
 	.fnend
 
 @recibe en r0 el char a buscar en el mapa
-@devuelve en r1 la cantidad de caracteres recorridos hasta encontrarlo o hasta terminar el mapa
+@devuelve en r1 la cantidad de caracteres recorridos hasta encontrarlo o -1 si no se encuentra
 encontrar_char_en_mapa:
 	.fnstart
 	push { r2, r3, r4, lr }
@@ -311,6 +313,12 @@ bucle_encontrar_mapa:
     add r1, r1, #1
     b bucle_encontrar_mapa
 fin_bucle:
+	cmp r1, r4
+	beq no_encontrado
+	b fin_encontrar_char
+	no_encontrado:
+	mov r1, #-1
+	fin_encontrar_char:
 	pop {r2 ,r3 ,r4 ,lr}
 	bx lr
 	.fnend
@@ -464,6 +472,99 @@ pedir_movimiento:
 	bx lr
 	.fnend
 
+guardar_movimiento_caja:
+	.fnstart
+	push { r0, r1, r2, lr}
+	ldr r0, =map_in_memory
+	ldrb r1, [r0, r2]           @ r1 = char en la posición nueva	
+	cmp r1, #'.'
+	beq guardar_movimiento_caja_valido_objetivo
+	ldr r0, =char_box
+	ldrb r0, [r0]               @ r0 = '$'
+	b dibujar_caja
+	guardar_movimiento_caja_valido_objetivo:
+	ldr r0, =char_box_at_objective
+	ldrb r0, [r0]               @ r0 = '*'
+
+	dibujar_caja:
+	mov r1, r2                  @ r1 = posición nueva
+	bl escribir_en_mapa         @ dibuja la caja en la nueva
+	pop {r0, r1, r2, lr}
+	bx lr
+	.fnend
+
+
+@recibe en r2 la posicion nueva de la caja y valida si es un movimiento valido, si lo es guarda la nueva posicion en pos_caja_mover
+validar_y_guardar_movimiento_caja:
+	.fnstart
+	push { r0, r1, r2, lr}
+	ldr r0, =map_in_memory
+	ldrb r1, [r0, r2]           @ r1 = char en la posición nueva
+	cmp r1, #' '
+	beq validar_movimiento_caja_valido
+	cmp r1, #'.'
+	beq validar_movimiento_caja_valido
+	mov r5, #-1 
+	b validar_movimiento_caja_fin
+	validar_movimiento_caja_valido:
+	mov r5, #0
+	bl guardar_movimiento_caja
+	validar_movimiento_caja_fin:
+	pop {r0, r1, r2, lr}
+	bx lr
+	.fnend
+
+@maneja el movimiento de la caja, devuelve en r5 si fue valido o no, y actualiza pos_caja_mover
+manejar_movimiento_caja:
+	.fnstart
+	push { r0, r1, r2, lr}
+	ldr r1, =pos_caja_mover
+	ldr r1, [r1]                @ r0 = pos de la caja a mover
+	ldr r0, =buffer_input_teclado
+	ldrb r0, [r0]               @ r0 = tecla de movimiento
+	cmp r0, #'w'
+	beq manejar_movimiento_caja_arriba
+	cmp r0, #'W'
+	beq manejar_movimiento_caja_arriba
+	cmp r0, #'s'
+	beq manejar_movimiento_caja_abajo
+	cmp r0, #'S'
+	beq manejar_movimiento_caja_abajo
+	cmp r0, #'a'
+	beq manejar_movimiento_caja_izquierda
+	cmp r0, #'A'
+	beq manejar_movimiento_caja_izquierda
+	cmp r0, #'d'
+	beq manejar_movimiento_caja_derecha
+	cmp r0, #'D'
+	beq manejar_movimiento_caja_derecha
+
+	manejar_movimiento_caja_arriba:
+	bl obtener_arriba_pos       @ r2 = pos de arriba o -1
+	b intentar_mover_caja
+	manejar_movimiento_caja_abajo:
+	bl obtener_pos_abajo        @ r2 = pos de abajo o -1
+	b intentar_mover_caja
+	manejar_movimiento_caja_izquierda:
+	sub r2, r1, #1
+	b intentar_mover_caja
+	manejar_movimiento_caja_derecha:
+	add r2, r1, #1
+
+	intentar_mover_caja:
+	cmp r2, #0
+	blt movimiento_caja_invalido
+	blge validar_y_guardar_movimiento_caja
+	b fin_manejo_movimiento_caja
+	movimiento_caja_invalido:
+	mov r5, #-1
+	fin_manejo_movimiento_caja:
+	pop {r0, r1, r2, lr}
+	bx lr
+	.fnend
+	
+
+
 @recibe en r2 la posicion nueva del personaje y mueve al personaje a esa posicion, actualizando pos_personaje y el mapa
 guardar_movimiento:
 	.fnstart
@@ -519,19 +620,30 @@ guardar_movimiento:
 @recibe en r2 la posicion nueva del personaje y valida si es un movimiento valido, si lo es guarda la nueva posicion en pos_personaje
 validar_y_guardar_movimiento:
 	.fnstart
-	push { r0, r1, r2, lr}
+	push { r0, r1, r2, r5, r6, lr}
 	ldr r0, =map_in_memory
 	ldrb r1, [r0, r2]           @ r1 = char en la posición nueva
 	cmp r1, #' '
 	beq validar_movimiento_valido
 	cmp r1, #'.'
 	beq validar_movimiento_valido
+	cmp r1, #'$'
+	beq validar_movimiento_caja
 	bl imprimir_input_invalido  @ casillas no vacias TODO: manejar cajas y objetivos
 	b validar_movimiento_fin
+	
+	@intento de mover caja
+	validar_movimiento_caja:
+	ldr r6, =pos_caja_mover
+	str r2, [r6]                @ guardo la posicion de la caja a mover
+	bl manejar_movimiento_caja
+	cmp r5, #-1
+	beq validar_movimiento_fin
+
 	validar_movimiento_valido:
 	bl guardar_movimiento
 	validar_movimiento_fin:
-	pop {r0, r1, r2, lr}
+	pop {r0, r1, r2, r5, r6, lr}
 	bx lr
 	.fnend
 
@@ -582,7 +694,36 @@ manejo_movimiento:
 	bx lr
 	.fnend
 
+@inicializa la posicion del jugador en el mapa
+inicializar_jugador:
+	.fnstart
+	push {r0, r1, lr}
+	ldr r0,=char_player
+	ldrb r0, [r0]
+	bl encontrar_char_en_mapa
+	ldr r2,=pos_personaje
+	str r1, [r2]
+	pop {r0, r1, lr}
+	bx lr
+	.fnend
 
+@valida si ya no hay cajas en el mapa, si no hay devuelve 1, sino devuelve 0 en r3
+validar_victoria:
+	.fnstart
+	push {r0, r1, r2, lr}
+	mov r3, #0
+	ldr r0, =char_box
+	ldrb r0, [r0]               @ r0 = '$'
+	bl encontrar_char_en_mapa
+	cmp r1, #-1
+	beq victoria
+	b fin_validar_victoria
+	victoria:
+	mov r3, #1
+	fin_validar_victoria:
+	pop {r0, r1, r2, lr}
+	bx lr
+	.fnend
 
 .global main
 
@@ -614,36 +755,37 @@ bucle_seleccion_mapa:
 	b bucle_seleccion_mapa
 fin_bucle_seleccion_mapa:
 bl cargar_mapa
+bl inicializar_jugador
 
-ldr r0,=char_player
-ldrb r0, [r0]
-bl encontrar_char_en_mapa
-ldr r2,=pos_personaje
-str r1, [r2]
+
 bucle_juego:
 	bl mostrar_mapa
 	bl pedir_movimiento
+	@manejar input
 	cmp r0, #'q'				@ si es 'q' termina el bucle	
 	beq fin_bucle_juego
 	cmp r0, #'r'
 	bne no_es_r
-	bl cargar_mapa 			@ si es 'R' recarga el mapa
+	bl cargar_mapa 			@ si es 'R' recarga el mapa      
 	
 	@reset player pos
-	ldr r0,=char_player
-	ldrb r0, [r0]
-	bl encontrar_char_en_mapa
-	ldr r2,=pos_personaje
-	str r1, [r2]
+	bl inicializar_jugador
 
 	b seguir	
 	no_es_r:
 	blne manejo_movimiento		@ si no es 'R' ni 'q' escribe en el mapa
+	bl validar_victoria
+	cmp r3, #1
+	beq fin_bucle_juego_victoria
 	seguir:
 	b bucle_juego
+fin_bucle_juego_victoria:
+	bl mostrar_mapa
+	ldr r1, =msg_victory
+	mov r2, $len_msg_victory
+	bl imprimir 
+                         
 fin_bucle_juego:
-
-bl limpiar_pantalla
 mov r7, #1
 
 swi 0                           @ SWI, Software interrupt
