@@ -83,6 +83,11 @@ pos_personaje: .word 0
 mov_personaje: .word 0 
 pos_caja_mover: .word 0
 mov_caja: .word 0
+
+movements: .int 0
+start_time: .space 8
+finish_time: .space 8
+
 .text
 
 @ llama a imprimir en pantalla
@@ -459,6 +464,52 @@ obtener_pos_abajo:
 	bx lr
 	.fnend
 
+@obtiene en en r1 la posicion desde la que se desea mover
+@carga en r0 la tecla de movimiento
+@devuelve en r2 la posicion a la cual moverse, o -1 si es invalida
+obtener_posicion_siguiente:
+	.fnstart
+	push {r0, r1, lr}
+	ldr r0, =buffer_input_teclado
+	ldrb r0, [r0]               @ r0 = tecla de movimiento
+	cmp r0, #'w'
+	beq movimiento_arriba
+	cmp r0, #'W'
+	beq movimiento_arriba
+	cmp r0, #'s'
+	beq movimiento_abajo
+	cmp r0, #'S'
+	beq movimiento_abajo
+	cmp r0, #'a'
+	beq movimiento_izquierda
+	cmp r0, #'A'
+	beq movimiento_izquierda
+	cmp r0, #'d'
+	beq movimiento_derecha
+	cmp r0, #'D'
+	beq movimiento_derecha
+	b fin_manejo_movimiento_no_reconocida     @ tecla no reconocida
+
+	movimiento_arriba:
+	bl obtener_arriba_pos       @ r2 = pos de arriba o -1
+	b fin_obtener_posicion_siguiente
+	movimiento_abajo:
+	bl obtener_pos_abajo        @ r2 = pos de abajo o -1
+	b fin_obtener_posicion_siguiente
+	movimiento_izquierda:
+	sub r2, r1, #1
+	b fin_obtener_posicion_siguiente
+	movimiento_derecha:
+	add r2, r1, #1
+	b fin_obtener_posicion_siguiente
+	fin_manejo_movimiento_no_reconocida:
+	mov r2, #-1
+
+	fin_obtener_posicion_siguiente:
+	pop {r0, r1, lr}
+	bx lr
+	.fnend
+
 @pide input de teclado por pantalla y la devuelve en r0
 @pedido de movimiento
 pedir_movimiento:
@@ -520,38 +571,7 @@ manejar_movimiento_caja:
 	push { r0, r1, r2, lr}
 	ldr r1, =pos_caja_mover
 	ldr r1, [r1]                @ r0 = pos de la caja a mover
-	ldr r0, =buffer_input_teclado
-	ldrb r0, [r0]               @ r0 = tecla de movimiento
-	cmp r0, #'w'
-	beq manejar_movimiento_caja_arriba
-	cmp r0, #'W'
-	beq manejar_movimiento_caja_arriba
-	cmp r0, #'s'
-	beq manejar_movimiento_caja_abajo
-	cmp r0, #'S'
-	beq manejar_movimiento_caja_abajo
-	cmp r0, #'a'
-	beq manejar_movimiento_caja_izquierda
-	cmp r0, #'A'
-	beq manejar_movimiento_caja_izquierda
-	cmp r0, #'d'
-	beq manejar_movimiento_caja_derecha
-	cmp r0, #'D'
-	beq manejar_movimiento_caja_derecha
-
-	manejar_movimiento_caja_arriba:
-	bl obtener_arriba_pos       @ r2 = pos de arriba o -1
-	b intentar_mover_caja
-	manejar_movimiento_caja_abajo:
-	bl obtener_pos_abajo        @ r2 = pos de abajo o -1
-	b intentar_mover_caja
-	manejar_movimiento_caja_izquierda:
-	sub r2, r1, #1
-	b intentar_mover_caja
-	manejar_movimiento_caja_derecha:
-	add r2, r1, #1
-
-	intentar_mover_caja:
+	bl obtener_posicion_siguiente  @ r2 = pos a la que se quiere mover la caja
 	cmp r2, #0
 	blt movimiento_caja_invalido
 	blge validar_y_guardar_movimiento_caja
@@ -647,45 +667,16 @@ validar_y_guardar_movimiento:
 	bx lr
 	.fnend
 
+
 @manejo de movimiento
 @recibe en r0 la tecla obtenida y se guarda si es valido el movimiento
-manejo_movimiento:
+verificar_y_mover:
 .fnstart
 	push {r0, r1, r2, lr}
 	ldr r1,=pos_personaje
 	ldr r1, [r1]
 
-	cmp r0, #'w'
-	beq movimiento_arriba
-	cmp r0, #'W'
-	beq movimiento_arriba
-	cmp r0, #'s'
-	beq movimiento_abajo
-	cmp r0, #'S'
-	beq movimiento_abajo
-	cmp r0, #'a'
-	beq movimiento_izquierda
-	cmp r0, #'A'
-	beq movimiento_izquierda
-	cmp r0, #'d'
-	beq movimiento_derecha
-	cmp r0, #'D'
-	beq movimiento_derecha
-	b fin_manejo_movimiento     @ tecla no reconocida
-
-	movimiento_arriba:
-	bl obtener_arriba_pos       @ r2 = pos de arriba o -1
-	b intentar_moverse
-	movimiento_abajo:
-	bl obtener_pos_abajo        @ r2 = pos de abajo o -1
-	b intentar_moverse
-	movimiento_izquierda:
-	sub r2, r1, #1
-	b intentar_moverse
-	movimiento_derecha:
-	add r2, r1, #1
-
-	intentar_moverse:
+	bl obtener_posicion_siguiente  @ r2 = pos a la que se quiere mover el jugador
 	cmp r2, #0
 	blge validar_y_guardar_movimiento   
 
@@ -708,7 +699,7 @@ inicializar_jugador:
 	.fnend
 
 @valida si ya no hay cajas en el mapa, si no hay devuelve 1, sino devuelve 0 en r3
-validar_victoria:
+verificar_victoria:
 	.fnstart
 	push {r0, r1, r2, lr}
 	mov r3, #0
@@ -717,10 +708,10 @@ validar_victoria:
 	bl encontrar_char_en_mapa
 	cmp r1, #-1
 	beq victoria
-	b fin_validar_victoria
+	b fin_verificar_victoria
 	victoria:
 	mov r3, #1
-	fin_validar_victoria:
+	fin_verificar_victoria:
 	pop {r0, r1, r2, lr}
 	bx lr
 	.fnend
@@ -773,8 +764,8 @@ bucle_juego:
 
 	b seguir	
 	no_es_r:
-	blne manejo_movimiento		@ si no es 'R' ni 'q' escribe en el mapa
-	bl validar_victoria
+	blne verificar_y_mover		@ si no es 'R' ni 'q' verifica y mueve al jugador
+	bl verificar_victoria
 	cmp r3, #1
 	beq fin_bucle_juego_victoria
 	seguir:
