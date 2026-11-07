@@ -1,6 +1,6 @@
 .data
 @especiales
-clear_str:  .ascii "\033[2J\033[H"  @ caracter especiales para limpiar pantalla y mover cursor a 0,0
+clear_str:  .ascii "\033[2J\033[H"  @ código de escape ANSI para limpiar pantalla y mover cursor a arriba a la izquierda
 .equ clear_len, . - clear_str
 
 @mapas
@@ -46,11 +46,18 @@ mapa4: 	.ascii "#########################\n"
 .equ mapa4_len, . - mapa4   
 mapa4_ancho: .int 26 
 
-
+@Archivo
+archi:     .asciz "ranking_sokoban.txt" // manejamos archivos de texto “.txt”
+buffer_file:   .space 62   			  // espacio para poner contenido archivo
+.equ len_buffer_file, 62
+buffer_record: .space 62				//espacio para string a guardar en archivo
+.equ len_buffer_record, 62
 
 @buffer
-buffer_input_teclado: .ascii "                                                                                           "
+buffer_input_teclado: .space 16
 len_input_teclado = . - buffer_input_teclado
+buffer_numero_ascii: .space 12
+.equ len_buffer_numero_ascii, 12 
 
 @Mensajes:
 msg_welcome: .ascii "Proyecto Sokoban Arm \n"
@@ -63,6 +70,18 @@ msg_movements: .ascii "Controles: Movimiento (W/A/S/D) Reiniciar(R) Salir(Q) \n"
 len_msg_movements = . - msg_movements
 msg_victory: .ascii "*** Nivel Completado Felicidades ***\n"
 len_msg_victory = . - msg_victory
+msg_victory_result: .ascii "Ingrese su nombre, no mas de 15 caracteres: \n"
+len_msg_victory_result = . - msg_victory_result
+msg_victory_title: .ascii "Nombre           | Nivel        | Pasos        | Tiempo      \n"
+len_msg_victory_title = . - msg_victory_title
+
+
+espacio_resultados: .ascii " | "
+len_espacio_resultados = . - espacio_resultados
+
+
+salto_de_linea: .ascii "\n"
+len_salto_de_linea = . - salto_de_linea
 
 @RepresentacionGraficaChars:
 char_player: .ascii "@"
@@ -87,7 +106,7 @@ mov_caja: .word 0
 movements: .int 0
 start_time: .space 8
 finish_time: .space 8
-
+tiempo_total: .space 8
 .text
 
 @ llama a imprimir en pantalla
@@ -359,7 +378,7 @@ pedirTexto:
 pedirInputTeclado:
 	.fnstart
 	push {r1,r2,lr}
-
+	bl limpiar_buffer_teclado
 	ldr r1, =buffer_input_teclado
 	mov r2, $len_input_teclado
 	bl pedirTexto
@@ -379,7 +398,7 @@ dividir:
     mov r6, #0
     ciclo:
 	cmp r3, r4
-	ble finCiclo
+	blt finCiclo
 
 	sub r3, r4
 	add r6, #1
@@ -411,14 +430,74 @@ pasar_ascii_a_numero:
 	bx lr
 	.fnend
 
-@recibe en r0 un numero de una cifra y devuelve en r1 su valor en ascii
+@recibe en r1 un numero de una cifra y devuelve en r2 su valor en ascii
 pasar_numero_a_ascii_una_cifra:
 	.fnstart
-	push {r0, lr}
-	add r1, r0, #'0'
-	pop {r0, lr}
+	push {r1, lr}
+	add r2, r1, #'0'
+	pop {r1, lr}
 	bx lr
 	.fnend
+
+@limpiar el buffer de numero ascii llenandolo de espacios
+limpiar_buffer_numero_ascii:
+	.fnstart
+	push {r0, r1, lr}
+	ldr r0, =buffer_numero_ascii
+	mov r1, $len_buffer_numero_ascii
+	bucle_limpiar_buffer:
+	cmp r1, #0
+	beq fin_bucle_limpiar_buffer
+	mov r2, #' '
+	strb r2, [r0], #1
+	sub r1, r1, #1
+	b bucle_limpiar_buffer
+	fin_bucle_limpiar_buffer:
+	pop {r0, r1, lr}
+	bx lr
+	.fnend
+
+@limpia el buffer de input de teclado llenandolo de espacios
+limpiar_buffer_teclado:
+	.fnstart
+	push {r0, r1, lr}
+	ldr r0, =buffer_input_teclado
+	mov r1, $len_input_teclado
+	bucle_limpiar_buffer_teclado:
+	cmp r1, #0
+	beq fin_bucle_limpiar_buffer_teclado
+	mov r2, #' '
+	strb r2, [r0], #1
+	sub r1, r1, #1
+	b bucle_limpiar_buffer_teclado
+	fin_bucle_limpiar_buffer_teclado:
+	pop {r0, r1, lr}
+	bx lr
+	.fnend
+
+@convierte un numero en r0 a ascii y lo guarda en buffer_numero_ascii
+pasar_numero_a_ascii:
+	.fnstart
+	push {r0, r1, r2, r3, r4, r5, r6, r7, lr}
+	bl limpiar_buffer_numero_ascii
+	ldr r7, =buffer_numero_ascii
+	add r7, r7, $len_buffer_numero_ascii  @ r7 apunta al final del buffer
+	mov r3, r0  					      @ r3 = numero a convertir
+	mov r4, #10 						  @ divido por 10 para obtener digitos
+	bucle_recorrer_numero:
+	@r3 = numero a convertir r4 divisor
+	bl dividir
+	mov r3, r6  						  @ el resto del numero a convertir lo muevo al cociente
+	mov r1, r5  						  @ El resto es la cifra a convertir
+	bl pasar_numero_a_ascii_una_cifra
+	sub r7, r7, #1 						  @ me muevo una posicion atras en el buffer
+	strb r2, [r7] 						  @ guardo el digito convertido en ascii
+	cmp r3, #0
+	bne bucle_recorrer_numero
+	pop {r0, r1, r2, r3, r4, r5, r6, r7, lr}
+	bx lr
+	.fnend
+
 
 
 @recibe una posicion dentro del mapa en r1 y devuelve en r2 la posicion arriba en el mapa,
@@ -661,6 +740,10 @@ validar_y_guardar_movimiento:
 	beq validar_movimiento_fin
 
 	validar_movimiento_valido:
+	ldr r0, =movements
+	ldr r1, [r0]
+	add r1, r1, #1
+	str r1, [r0]                @ incrementa contador de movimientos
 	bl guardar_movimiento
 	validar_movimiento_fin:
 	pop {r0, r1, r2, r5, r6, lr}
@@ -694,7 +777,23 @@ inicializar_jugador:
 	bl encontrar_char_en_mapa
 	ldr r2,=pos_personaje
 	str r1, [r2]
+	ldr r0,=movements
+	mov r1, #0
+	str r1, [r0]
+	ldr r0,=start_time
+	bl obtener_tiempo
 	pop {r0, r1, lr}
+	bx lr
+	.fnend
+
+@recibe en r0 la direccion de memoria donde guardar el tiempo y lo guarda el tiempo actual
+obtener_tiempo:
+	.fnstart
+	push {r0,r1,r7, lr}
+	mov r1, #0
+	mov r7, #78 @ syscall de gettimeofday
+	swi 0
+	pop {r0, r1, r7, lr}
 	bx lr
 	.fnend
 
@@ -713,6 +812,255 @@ verificar_victoria:
 	mov r3, #1
 	fin_verificar_victoria:
 	pop {r0, r1, r2, lr}
+	bx lr
+	.fnend
+
+@calcula la diferencia entre el tiempo de inicion y el tiempo de fin y lo guarda en tiempo_total
+calcular_tiempo_total:
+	.fnstart
+	push {r0, r1, r2, lr}
+	ldr r0,=finish_time
+	bl obtener_tiempo
+	ldr r0,=finish_time
+	ldr r0, [r0]
+	ldr r1,=start_time
+	ldr r1, [r1]
+	sub r0, r0, r1
+	ldr r2,=tiempo_total
+	str r0, [r2]
+	pop {r0, r1, r2, lr}
+	bx lr
+	.fnend
+
+@receibe en r0 un numero y lo imprime en pantalla
+imprimir_numero:
+	.fnstart
+	push {r0, r1, r2, lr}
+	bl pasar_numero_a_ascii
+	ldr r1,=buffer_numero_ascii
+	mov r2, $len_buffer_numero_ascii
+	bl imprimir
+	pop {r0, r1, r2, lr}
+	bx lr
+	.fnend
+
+@receibe en r0 la direccion de memoria de un string, en r2 la cantidad de caracteres a copiar y en r1 la direccion de memoria donde copiarlo
+copiar_string:
+	.fnstart
+	push {r0, r1, r2, lr}
+	bucle_copiar_string:
+	cmp r2, #0
+	beq fin_bucle_copiar_string
+	ldrb r3, [r0], #1
+	strb r3, [r1], #1
+	sub r2, r2, #1
+	b bucle_copiar_string
+	fin_bucle_copiar_string:
+	pop {r0, r1, r2, lr}
+	bx lr
+	.fnend
+
+@ borra el salto de linea del buffer de input de teclado y lo reemplaza por un espacio
+eliminar_salto_de_linea:
+	.fnstart
+	push {r0, r1, r2, r3, lr}
+	ldr r0,=buffer_input_teclado
+	mov r2, $len_input_teclado
+	mov r3, #0
+	bucle_eliminar_salto_de_linea:
+	cmp r3, r2
+	beq fin_eliminar_salto_de_linea
+	ldrb r1, [r0]
+	cmp r1, #'\n'
+	beq reemplazar_por_espacio
+	add r0, r0, #1
+	add r3, r3, #1
+	b bucle_eliminar_salto_de_linea
+	reemplazar_por_espacio:
+	mov r1, #' '
+	strb r1, [r0]
+	fin_eliminar_salto_de_linea:
+	pop {r0, r1, r2, r3, lr}
+	bx lr
+	.fnend
+
+
+@ arma el string de record a guardar en el archivo, con el formato: nombre nivel movimientos tiempo
+armar_record:
+	.fnstart
+	push { r0, r1, r2, lr }
+	ldr r1,=buffer_record
+	
+	bl pedirInputTeclado
+	bl eliminar_salto_de_linea
+	ldr r0,=buffer_input_teclado
+	mov r2, $len_input_teclado
+	bl copiar_string
+	add r1, r1, $len_input_teclado
+
+	ldr r0,=espacio_resultados
+	mov r2, $len_espacio_resultados
+	bl copiar_string
+	add r1, r1, $len_espacio_resultados
+
+	ldr r0,=current_level
+	ldr r0, [r0]
+	bl pasar_numero_a_ascii
+	ldr r0,=buffer_numero_ascii
+	mov r2, $len_buffer_numero_ascii
+	bl copiar_string
+	add r1, r1, $len_buffer_numero_ascii
+	
+	ldr r0,=espacio_resultados
+	mov r2, $len_espacio_resultados
+	bl copiar_string
+	add r1, r1, $len_espacio_resultados
+	
+	ldr r0,=movements
+	ldr r0, [r0]
+	bl pasar_numero_a_ascii
+	ldr r0,=buffer_numero_ascii
+	mov r2, $len_buffer_numero_ascii
+	bl copiar_string
+	add r1, r1, $len_buffer_numero_ascii
+
+	ldr r0,=espacio_resultados
+	mov r2, $len_espacio_resultados
+	bl copiar_string
+	add r1, r1, $len_espacio_resultados
+
+	ldr r0,=tiempo_total
+	ldr r0, [r0]
+	bl pasar_numero_a_ascii
+	ldr r0,=buffer_numero_ascii
+	mov r2, $len_buffer_numero_ascii
+	bl copiar_string
+	add r1, r1, $len_buffer_numero_ascii
+	
+	ldr r0,=salto_de_linea
+	mov r2, $len_salto_de_linea
+	bl copiar_string
+	pop { r0, r1, r2, lr }
+	bx lr
+	.fnend
+
+
+@imprime un salto de linea en pantalla
+imprimir_salto_de_linea:
+	.fnstart
+	push {r1, r2, lr}
+	ldr r1,=salto_de_linea
+	mov r2, $len_salto_de_linea
+	bl imprimir
+	pop {r1, r2, lr}
+	bx lr
+	.fnend
+
+@abre el archivo de record y guarda el descriptor en r6, si hubo error devuelve -1 en r6
+abrir_archivo_record:
+	.fnstart
+	push {r0, r1, r2, lr}
+	mov r7, #5          		// Abrir archivo
+    ldr r0, =archi      		// puntero al nombre del archivo
+                         			// en r0 devuelve el descriptor
+    mov r1, #2          		// 0: Lectura, 1: Escritura 2: lectura/escritura
+    mov r2, #438         		// Permisos (0666 en octal rw para todos, son  permisos de linux), se pone 0 en caso de lectura.
+    swi 0				// SysCall
+    mov r6, r0  			// Guardo el descriptor en r6
+	error_abrir_archivo_record:
+	fin_abrir_archivo_record:
+	pop {r0, r1, r2, lr}
+	bx lr
+	.fnend
+
+@cierra el archivo de record
+cerrar_archivo_record:
+	.fnstart
+	push {r0, r1, r2, lr}
+	mov r0, r6
+	mov r7, #6          		// Cerrar archivo
+	swi 0				// SysCall
+	pop {r0, r1, r2, lr}
+	bx lr
+	.fnend
+
+@lee e imprime el ranking del archivo de record, si hubo error al abrir el archivo no imprime nada
+leer_ranking:
+	.fnstart
+	push {r0, r1, r2, lr}
+	bl abrir_archivo_record
+	cmp r6, #-1
+	beq error_abrir_archivo_record_leer_ranking
+	bucle_leer_ranking:
+
+	mov r0, r6
+	ldr r1,=buffer_file
+	mov r2, $len_buffer_file
+	mov r7, #3          		// Leer archivo
+	swi 0				// SysCall
+	cmp r0, #0
+	ble fin_bucle_leer_ranking  @ 0 = EOF, negativo = error
+	mov r2, r0                  @ imprime solo lo que se leyó
+	ldr r1, =buffer_file
+	bl imprimir
+	b bucle_leer_ranking
+
+	fin_bucle_leer_ranking:
+	bl cerrar_archivo_record
+	error_abrir_archivo_record_leer_ranking:
+	pop {r0, r1, r2, lr}
+	bx lr
+	.fnend
+
+@se para en el final del archivo para evitar sobreescribir
+ir_a_fin_de_archivo_record:
+	.fnstart
+	push {r0, r1, r2, lr}
+	mov r7, #19         	// System call para mover el cursor en un archivo
+    mov r0, r6           	// Descriptor del archivo
+    mov r1, #0           	// offset
+    mov r2, #2           	// SEEK_END (colocar el puntero al final del archivo)
+    swi 0			// SysCall
+	pop {r0, r1, r2, lr}
+	bx lr
+	.fnend
+
+@guarda el nuevo record
+escribir_ranking:
+	.fnstart
+	push {r0, r1, r2, lr}
+	bl abrir_archivo_record
+	cmp r6, #-1
+	beq error_abrir_archivo_record_escribir_ranking
+	bl ir_a_fin_de_archivo_record
+	mov r0, r6          		// Nos aseguramos que r0 contenga descriptor
+    mov r7, #4          		// Escritura, write
+    ldr r1, =buffer_record		// puntero a memoria donde está el nuevo texto
+    mov r2, $len_buffer_record		// cantidad de caracteres a escribir
+    swi 0				// syscall
+	bl cerrar_archivo_record
+	error_abrir_archivo_record_escribir_ranking:
+	pop {r0, r1, r2, lr}
+	bx lr
+	.fnend
+
+
+@pantalla de victoria
+victory_screen:
+	.fnstart
+	push {r0, r1, r2, lr }
+	bl calcular_tiempo_total
+	ldr r1,=msg_victory_result
+	mov r2, $len_msg_victory_result
+	bl imprimir
+	bl armar_record
+	bl escribir_ranking
+	ldr r1,=msg_victory_title
+	mov r2, $len_msg_victory_title
+	bl imprimir
+	bl leer_ranking
+	bl imprimir_salto_de_linea
+	pop {r0, r1, r2, lr }
 	bx lr
 	.fnend
 
@@ -774,7 +1122,8 @@ fin_bucle_juego_victoria:
 	bl mostrar_mapa
 	ldr r1, =msg_victory
 	mov r2, $len_msg_victory
-	bl imprimir 
+	bl imprimir
+	bl victory_screen 
                          
 fin_bucle_juego:
 mov r7, #1
